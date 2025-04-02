@@ -31,7 +31,8 @@ def dump_database():
 
     cmd = ["pg_dump", "-h", db_host, "-p", db_port, "-U", db_user, "-d", db_name, "-f", dump_file]
 
-    os.environ["PGPASSWORD"] = db_password
+    if db_password is not None:
+        os.environ["PGPASSWORD"] = db_password
 
     try:
         subprocess.run(cmd, check=True)

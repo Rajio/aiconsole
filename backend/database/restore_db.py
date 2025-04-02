@@ -31,7 +31,9 @@ def restore_database():
 
     cmd = ["psql", "-h", db_host, "-p", db_port, "-U", db_user, "-d", db_name, "-f", dump_file]
 
-    os.environ["PGPASSWORD"] = db_password
+    # Перевіряємо, що пароль не None перед використанням
+    if db_password is not None:
+        os.environ["PGPASSWORD"] = db_password
 
     try:
         subprocess.run(cmd, check=True)
