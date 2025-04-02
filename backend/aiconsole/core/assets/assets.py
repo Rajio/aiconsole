@@ -26,6 +26,8 @@ from aiconsole.core.assets.fs.move_asset_in_fs import move_asset_in_fs
 from aiconsole.core.assets.fs.project_asset_exists_fs import project_asset_exists_fs
 from aiconsole.core.assets.fs.save_asset_to_fs import save_asset_to_fs
 from aiconsole.core.assets.types import Asset, AssetLocation, AssetStatus, AssetType
+from aiconsole.core.database.config import db_manager
+from aiconsole.core.database.services import MaterialService
 from aiconsole.core.project import project
 from aiconsole.core.project.paths import get_project_assets_directory
 from aiconsole.core.settings.settings import settings
@@ -39,11 +41,14 @@ class Assets:
     # _assets have lists, where the 1st element is the one overriding the others
     # Currently there can be only 1 overriden element
     _assets: dict[str, list[Asset]]
+    _material_service: MaterialService | None = None
 
     def __init__(self, asset_type: AssetType):
         self._suppress_notification_until: datetime.datetime | None = None
         self.asset_type = asset_type
         self._assets = {}
+        if asset_type == AssetType.MATERIAL:
+            self._material_service = MaterialService(db_manager.async_session)
 
         self.observer = watchdog.observers.Observer()
 
@@ -76,22 +81,12 @@ class Assets:
         if asset.defined_in != AssetLocation.PROJECT_DIR and not create:
             raise Exception("Cannot save asset not defined in project.")
 
-        exists_in_project = project_asset_exists_fs(self.asset_type, asset.id)
-        old_exists = project_asset_exists_fs(self.asset_type, old_asset_id)
-
-        if create and exists_in_project:
-            create = False
-
-        if not create and not exists_in_project:
-            raise Exception(f"Asset {asset.id} does not exist.")
-
-        rename = False
-        if create and old_asset_id and not exists_in_project and old_exists:
-            await move_asset_in_fs(asset.type, old_asset_id, asset.id)
-            Assets.rename_asset(asset.type, old_asset_id, asset.id)
-            rename = True
-
-        new_asset = await save_asset_to_fs(asset, old_asset_id)
+        if self.asset_type == AssetType.MATERIAL and self._material_service:
+            project_id = project.get_project_id()
+            if create:
+                await self._material_service.save_material(asset, project_id)
+            else:
+                await self._material_service.update_material(asset, project_id)
 
         if asset.id not in self._assets:
             self._assets[asset.id] = []
@@ -105,13 +100,14 @@ class Assets:
             if self._assets[asset.id] and self._assets[asset.id][0].defined_in == AssetLocation.PROJECT_DIR:
                 raise Exception(f"Asset {asset.id} already exists")
 
-        self._assets[asset.id].insert(0, new_asset)
+        self._assets[asset.id].insert(0, asset)
 
         self._suppress_notification()
 
-        return rename
-
     async def delete_asset(self, asset_id):
+        if self.asset_type == AssetType.MATERIAL and self._material_service:
+            await self._material_service.delete_material(asset_id)
+
         self._assets[asset_id].pop(0)
 
         if len(self._assets[asset_id]) == 0:
@@ -122,41 +118,31 @@ class Assets:
         self._suppress_notification()
 
     def _suppress_notification(self):
-        self._suppress_notification_until = datetime.datetime.now() + datetime.timedelta(seconds=10)
+        self._suppress_notification_until = datetime.datetime.now() + datetime.timedelta(seconds=1)
 
-    def get_asset(self, id, location: AssetLocation | None = None):
-        """
-        Get a specific asset.
-        """
-        if id not in self._assets or len(self._assets[id]) == 0:
+    def get_asset(self, asset_id: str, location: AssetLocation | None = None) -> Asset | None:
+        if asset_id not in self._assets:
             return None
 
-        for asset in self._assets[id]:
-            if location is None or asset.defined_in == location:
-                return asset
+        if location:
+            for asset in self._assets[asset_id]:
+                if asset.defined_in == location:
+                    return asset
+            return None
 
-        return None
+        return self._assets[asset_id][0] if self._assets[asset_id] else None
 
     async def reload(self, initial: bool = False):
-        from aiconsole.core.assets.load_all_assets import load_all_assets
+        if self.asset_type == AssetType.MATERIAL and self._material_service:
+            project_id = project.get_project_id()
+            materials = await self._material_service.get_project_materials(project_id)
+            for material in materials:
+                if material.id not in self._assets:
+                    self._assets[material.id] = []
+                self._assets[material.id].insert(0, material)
 
-        _log.info(f"Reloading {self.asset_type}s ...")
-
-        self._assets = await load_all_assets(self.asset_type)
-
-        await connection_manager().send_to_all(
-            AssetsUpdatedServerMessage(
-                initial=(
-                    initial
-                    or not (
-                        not self._suppress_notification_until
-                        or self._suppress_notification_until < datetime.datetime.now()
-                    )
-                ),
-                asset_type=self.asset_type,
-                count=len(self._assets),
-            )
-        )
+        if not initial:
+            await connection_manager().send_to_all(AssetsUpdatedServerMessage())
 
     @staticmethod
     def get_status(asset_type: AssetType, id: str) -> AssetStatus:

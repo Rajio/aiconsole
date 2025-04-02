@@ -36,6 +36,7 @@ from aiconsole.core.code_running.run_code import reset_code_interpreters
 from aiconsole.core.code_running.virtual_env.create_dedicated_venv import (
     create_dedicated_venv,
 )
+from aiconsole.core.project.paths import get_project_directory
 from aiconsole.core.settings.fs.settings_file_storage import SettingsFileStorage
 from aiconsole.core.settings.settings import settings
 
@@ -148,3 +149,9 @@ async def choose_project(path: Path, background_tasks: BackgroundTasks):
     await reinitialize_project()
 
     background_tasks.add_task(create_dedicated_venv)
+
+
+def get_project_id() -> str:
+    """Get current project ID"""
+    project_dir = get_project_directory()
+    return str(project_dir.absolute())
