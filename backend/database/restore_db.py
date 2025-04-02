@@ -8,18 +8,16 @@ from dotenv import load_dotenv
 def restore_database():
     load_dotenv()
 
-    # Отримуємо URL бази даних
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise ValueError("DATABASE_URL is not set in .env file")
 
-    # Парсимо URL для отримання параметрів підключення
     parsed = urlparse(database_url)
     db_user = parsed.username
     db_password = parsed.password
     db_host = parsed.hostname
-    db_port = str(parsed.port or "5432")  # Конвертуємо порт в рядок
-    db_name = parsed.path[1:]  # Видаляємо початковий слеш
+    db_port = str(parsed.port or "5432")
+    db_name = parsed.path[1:]
 
     if not all([db_name, db_user, db_password]):
         raise ValueError("Missing required database connection parameters")
@@ -31,7 +29,6 @@ def restore_database():
 
     cmd = ["psql", "-h", db_host, "-p", db_port, "-U", db_user, "-d", db_name, "-f", dump_file]
 
-    # Перевіряємо, що пароль не None перед використанням
     if db_password is not None:
         os.environ["PGPASSWORD"] = db_password
 
