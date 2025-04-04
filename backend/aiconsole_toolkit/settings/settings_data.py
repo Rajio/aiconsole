@@ -13,7 +13,7 @@ REFERENCE_TO_GLOBAL_OPENAI_KEY = "ref/openai_api_key"
 class SettingsData(BaseModel):
     code_autorun: bool = False
     openai_api_key: str | None = None
-    user_profile: UserProfile = UserProfile()
+    user_profile: UserProfile = UserProfile(id="default", username="default")
     materials: dict[str, AssetStatus] = {}
     agents: dict[str, AssetStatus] = {}
     gpt_modes: dict[consts.GPTMode, GPTModeConfig] = {
