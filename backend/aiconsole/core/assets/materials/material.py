@@ -16,7 +16,7 @@
 import traceback
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from aiconsole.core.assets.materials.documentation_from_code import (
     documentation_from_code,
@@ -40,19 +40,6 @@ class MaterialContentType(str, Enum):
     STATIC_TEXT = "static_text"
     DYNAMIC_TEXT = "dynamic_text"
     API = "api"
-
-
-@dataclass
-class AICMaterial:
-    """Material model for AI agents"""
-
-    id: str
-    name: str
-    version: str
-    usage: str
-    content_type: str
-    content: str
-    default_status: str
 
 
 class Material(Asset):
@@ -126,9 +113,7 @@ class Material(Asset):
             else:
                 raise ValueError("No callable content function found!")
         except Exception:
-            await internal_events().emit(
-                MaterialRenderErrorEvent(), details=f"Error in DYNAMIC_TEXT material `{self.id}`"
-            )
+            await internal_events().emit(MaterialRenderErrorEvent(), details=f"Error in DYNAMIC_TEXT material `{self.id}`")
             error_details = RenderedMaterial(id=self.id, content="", error=traceback.format_exc())
             raise ValueError("Error in Dynamic Note material", error_details)
 

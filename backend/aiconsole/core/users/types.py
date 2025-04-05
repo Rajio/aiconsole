@@ -1,31 +1,28 @@
 from typing import Optional
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, EmailStr, HttpUrl, model_validator
 
 DEFAULT_USERNAME = "user"
 
 
 class PartialUserProfile(BaseModel):
     username: Optional[str] = None
-    email: Optional[str] = None
-    avatar_url: Optional[str] = None
+    email: Optional[EmailStr | str] = None
+    avatar_url: Optional[HttpUrl | str] = None
     gravatar: Optional[bool] = None
 
 
 class UserProfile(BaseModel):
-    """User profile data model"""
-
-    id: str
-    username: str
-    email: Optional[str] = None
-    avatar_url: Optional[str] = None
+    username: Optional[str] = None
+    email: Optional[EmailStr | str] = None
+    avatar_url: Optional[HttpUrl | str] = None
     gravatar: bool = False
 
     @model_validator(mode="after")
     def set_default_username(self):
-        if not self.username:
+        if self.username is None:
             email = self.email
-            if email:
+            if email and isinstance(email, EmailStr):
                 self.username = email.split("@")[0]
             else:
                 self.username = DEFAULT_USERNAME
