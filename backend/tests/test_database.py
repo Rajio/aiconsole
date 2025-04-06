@@ -3,6 +3,7 @@ Tests for database operations.
 """
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from aiconsole.database import db_manager
@@ -28,7 +29,7 @@ def test_database_connection():
     """Test database connection."""
     try:
         with db_manager.get_session() as session:
-            session.execute("SELECT 1")
+            session.execute(text("SELECT 1"))
     except SQLAlchemyError as e:
         pytest.fail(f"Database connection failed: {e}")
 

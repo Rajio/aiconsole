@@ -22,11 +22,17 @@ DB_FOLDER.mkdir(exist_ok=True)
 SQLITE_DB_PATH = DB_FOLDER / "materials.db"
 
 
-# Connection string
 def get_connection_string() -> str:
+    """Get the database connection string."""
     # PostgreSQL connection string
     encoded_password = quote_plus(DB_PASSWORD)
-    return f"postgresql://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}?client_encoding=utf8"
+    return f"postgresql://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+def get_async_connection_string() -> str:
+    """Get the async database connection string."""
+    # PostgreSQL async connection string
+    encoded_password = quote_plus(DB_PASSWORD)
+    return f"postgresql+asyncpg://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
     # SQLite connection string (commented out for production)
     # return f"sqlite:///{SQLITE_DB_PATH}"

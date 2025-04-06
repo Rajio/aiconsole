@@ -5,7 +5,7 @@ Test configuration and fixtures.
 import os
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from aiconsole.database import db_manager
@@ -29,8 +29,12 @@ def test_db():
 
     # Clean up
     Base.metadata.drop_all(bind=engine)
+    engine.dispose()  # Properly close the engine
     if os.path.exists("test.db"):
-        os.remove("test.db")
+        try:
+            os.remove("test.db")
+        except PermissionError:
+            pass  # Ignore if file is still in use
 
 
 @pytest.fixture(autouse=True)
@@ -43,3 +47,9 @@ def setup_test_db(test_db):
 
     # Drop tables after each test
     Base.metadata.drop_all(bind=test_db.engine)
+
+
+@pytest.fixture
+def test_db_manager(test_db):
+    """Alias for test_db fixture."""
+    return test_db

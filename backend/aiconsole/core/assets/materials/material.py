@@ -64,7 +64,7 @@ class Material(Asset):
             name=db_material.name,
             version=db_material.version,
             usage=db_material.usage or "",
-            defined_in=AssetLocation.PROJECT_DIR if db_material.location == "project" else AssetLocation.AICONSOLE,
+            defined_in=AssetLocation.PROJECT_DIR if db_material.location == "project" else AssetLocation.AICONSOLE_CORE,
             content_type=(
                 MaterialContentType(db_material.content_type)
                 if db_material.content_type
@@ -76,29 +76,74 @@ class Material(Asset):
     @classmethod
     async def get_by_id(cls, material_id: str) -> Optional["Material"]:
         """Get a material by its ID from the database."""
-        async with db_manager.session() as session:
-            db_material = await session.get(DBMaterial, int(material_id))
-            if db_material:
-                return await cls.from_db(db_material)
+        try:
+            async with db_manager.session() as session:
+                db_material = await session.get(DBMaterial, int(material_id))
+                if db_material:
+                    return await cls.from_db(db_material)
+                return None
+        except ValueError:
+            # Handle case where material_id cannot be converted to int
+            return None
+        except Exception as e:
+            _log.error(f"Error getting material {material_id}: {e}")
             return None
 
     async def save_to_db(self) -> None:
         """Save the material to the database."""
-        db_material = DBMaterial(
-            name=self.name,
-            version=self.version,
-            usage=self.usage,
-            type=self.type.value,
-            location="project" if self.defined_in == AssetLocation.PROJECT_DIR else "aiconsole",
-            default_status="enabled",
-            current_status="enabled",
-            content=self.content,
-            content_type=self.content_type.value,
-        )
+        try:
+            db_material = DBMaterial(
+                name=self.name,
+                version=self.version,
+                usage=self.usage,
+                type=self.type.value,
+                location="project" if self.defined_in == AssetLocation.PROJECT_DIR else "aiconsole",
+                default_status="enabled",
+                current_status="enabled",
+                content=self.content,
+                content_type=self.content_type.value,
+            )
 
-        async with db_manager.session() as session:
-            session.add(db_material)
-            await session.commit()
+            async with db_manager.session() as session:
+                session.add(db_material)
+                await session.commit()
+                await session.refresh(db_material)
+                self.id = str(db_material.id)  # Update the ID after save
+        except Exception as e:
+            _log.error(f"Error saving material {self.name} to database: {e}")
+            raise
+
+    async def update_in_db(self) -> None:
+        """Update the material in the database."""
+        try:
+            async with db_manager.session() as session:
+                db_material = await session.get(DBMaterial, int(self.id))
+                if db_material:
+                    db_material.name = self.name
+                    db_material.version = self.version
+                    db_material.usage = self.usage
+                    db_material.content = self.content
+                    db_material.content_type = self.content_type.value
+                    db_material.location = "project" if self.defined_in == AssetLocation.PROJECT_DIR else "aiconsole"
+                    await session.commit()
+                    await session.refresh(db_material)
+                else:
+                    raise ValueError(f"Material {self.id} not found in database")
+        except Exception as e:
+            _log.error(f"Error updating material {self.id} in database: {e}")
+            raise
+
+    async def delete_from_db(self) -> None:
+        """Delete the material from the database."""
+        try:
+            async with db_manager.session() as session:
+                db_material = await session.get(DBMaterial, int(self.id))
+                if db_material:
+                    await session.delete(db_material)
+                    await session.commit()
+        except Exception as e:
+            _log.error(f"Error deleting material {self.id} from database: {e}")
+            raise
 
     def __hash__(self):
         return hash(self.id + self.version + self.name + self.usage + self.content_type + self.content)

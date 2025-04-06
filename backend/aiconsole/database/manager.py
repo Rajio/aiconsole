@@ -1,17 +1,28 @@
-from contextlib import contextmanager
-from typing import Generator, List, Optional
+from contextlib import asynccontextmanager, contextmanager
+from typing import AsyncGenerator, Generator, List, Optional
 
 from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .config import get_connection_string
+from .config import get_connection_string, get_async_connection_string
 from .models import Base, Material
 
 
 class DatabaseManager:
     def __init__(self):
+        # Sync engine and session
         self.engine = create_engine(get_connection_string())
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        
+        # Async engine and session
+        self.async_engine = create_async_engine(get_async_connection_string())
+        self.AsyncSessionLocal = sessionmaker(
+            class_=AsyncSession,
+            autocommit=False,
+            autoflush=False,
+            bind=self.async_engine
+        )
 
     def create_tables(self):
         Base.metadata.create_all(bind=self.engine)
@@ -27,6 +38,18 @@ class DatabaseManager:
             raise
         finally:
             session.close()
+
+    @asynccontextmanager
+    async def session(self) -> AsyncGenerator[AsyncSession, None]:
+        session = self.AsyncSessionLocal()
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
 
     def create_material(self, material_data: dict) -> Material:
         session = self.SessionLocal()

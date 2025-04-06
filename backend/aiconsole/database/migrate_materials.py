@@ -1,23 +1,33 @@
 """
-Script to scan the project folder for materials and migrate them to the database.
+Script to migrate materials from filesystem to database.
 """
 
+import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import rtoml
+import yaml
+from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
+
+from aiconsole.core.assets.materials.material import MaterialContentType
+from aiconsole.core.assets.types import AssetLocation
+from aiconsole.core.project.paths import (
+    get_core_assets_directory,
+    get_project_assets_directory,
+)
 from aiconsole.database import db_manager
 from aiconsole.database.models import Material
 
+_log = logging.getLogger(__name__)
+
 
 def find_material_files(project_root: Path) -> List[Path]:
-    """
-    Find all material files in the project.
-
-    This function assumes materials are stored as JSON or YAML files in specific directories.
-    You may need to adjust the search patterns based on your actual project structure.
-    """
+    """Find all material files in the project."""
     material_files: List[Path] = []
 
     # Common patterns for material files
@@ -50,128 +60,117 @@ def find_material_files(project_root: Path) -> List[Path]:
     return list(set(material_files))  # Remove duplicates
 
 
-def parse_material_file(file_path: Path) -> Optional[Dict]:
-    """
-    Parse a material file and extract its content and metadata.
-
-    This function assumes materials are stored as JSON, YAML, TOML, or text files.
-    You may need to adjust the parsing logic based on your actual file formats.
-    """
+async def parse_material_file(file_path: Path) -> Optional[Dict]:
+    """Parse a material file and return its contents as a dictionary."""
     try:
         content = file_path.read_text(encoding="utf-8")
 
-        # Try to parse as JSON
+        # Try to parse based on file extension
         if file_path.suffix == ".json":
-            try:
-                data = json.loads(content)
-                return {
-                    "name": data.get("name", file_path.stem),
-                    "version": data.get("version", "1.0"),
-                    "usage": data.get("usage", ""),
-                    "usage_examples": data.get("usage_examples", ""),
-                    "type": data.get("type", "material"),
-                    "location": data.get("location", "project"),
-                    "default_status": data.get("default_status", "enabled"),
-                    "current_status": data.get("current_status", "enabled"),
-                    "override": data.get("override", False),
-                    "content": content,
-                    "content_type": "json",
-                    "path": str(file_path),
-                    "material_metadata": data.get("metadata", {}),
-                    "agents": data.get("agents", {}),
-                }
-            except json.JSONDecodeError:
-                print(f"Warning: Could not parse {file_path} as JSON")
+            data = json.loads(content)
+        elif file_path.suffix in [".yaml", ".yml"]:
+            data = yaml.safe_load(content)
+        elif file_path.suffix == ".toml":
+            data = rtoml.loads(content)
+        else:
+            # For other file types, create a basic material entry
+            data = {
+                "name": file_path.stem,
+                "version": "1.0",
+                "usage": "",
+                "content": content,
+                "content_type": "text"
+            }
 
-        # For other file types, create a basic material entry
-        return {
-            "name": file_path.stem,
-            "version": "1.0",
-            "usage": "",
-            "usage_examples": "",
-            "type": "material",
-            "location": "project",
-            "default_status": "enabled",
-            "current_status": "enabled",
-            "override": False,
-            "content": content,
-            "content_type": file_path.suffix[1:] if file_path.suffix else "text",
+        # Ensure required fields
+        material_data = {
+            "name": data.get("name", file_path.stem),
+            "version": data.get("version", "1.0"),
+            "usage": data.get("usage", ""),
+            "usage_examples": json.dumps(data.get("usage_examples", [])) if isinstance(data.get("usage_examples"), list) else data.get("usage_examples", ""),
+            "type": data.get("type", "material"),
+            "location": data.get("location", "project"),
+            "default_status": data.get("default_status", "enabled"),
+            "current_status": data.get("current_status", "enabled"),
+            "override": data.get("override", False),
+            "content": data.get("content", content),
+            "content_type": data.get("content_type", file_path.suffix[1:] if file_path.suffix else "text"),
             "path": str(file_path),
-            "material_metadata": {},
-            "agents": {},
+            "material_metadata": data.get("metadata", {}),
+            "agents": data.get("agents", {})
         }
+
+        return material_data
+
     except Exception as e:
-        print(f"Error parsing {file_path}: {e}")
+        _log.error(f"Error parsing material file {file_path}: {e}")
         return None
 
 
-def migrate_materials(project_root: Path) -> Tuple[int, int]:
-    """
-    Migrate materials from the filesystem to the database.
+async def migrate_material(file_path: Path) -> bool:
+    """Migrate a single material file to the database."""
+    try:
+        material_data = await parse_material_file(file_path)
+        if not material_data:
+            return False
 
-    Returns:
-        Tuple[int, int]: Number of materials found and number of materials migrated
+        # Check if material already exists
+        async with db_manager.session() as session:
+            result = await session.execute(
+                select(Material).where(Material.name == material_data["name"])
+            )
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                _log.info(f"Material {material_data['name']} already exists in database")
+                return True
+
+            # Create new material
+            material = Material(**material_data)
+            session.add(material)
+            await session.commit()
+            _log.info(f"Successfully migrated material {material_data['name']}")
+            return True
+
+    except Exception as e:
+        _log.error(f"Error migrating material {file_path}: {e}")
+        return False
+
+
+async def migrate_materials_to_db() -> Tuple[int, int]:
     """
+    Migrate all materials from filesystem to database.
+    Returns tuple of (success_count, total_count).
+    """
+    print("\n🔄 Starting materials migration...")
+
+    # Find all material files
+    project_root = Path.cwd()
     material_files = find_material_files(project_root)
-    print(f"Found {len(material_files)} material files")
+    total_count = len(material_files)
 
-    migrated_count = 0
-    with db_manager.get_session() as session:
-        for file_path in material_files:
-            material_data = parse_material_file(file_path)
-            if material_data:
-                try:
-                    # Check if material with the same name already exists
-                    existing_material = session.query(Material).filter_by(name=material_data["name"]).first()
-                    if existing_material:
-                        print(f"Material '{material_data['name']}' already exists in the database, skipping")
-                        continue
+    if total_count == 0:
+        print("❌ No material files found")
+        return 0, 0
 
-                    # Create the material in the database
-                    material = Material(**material_data)
-                    session.add(material)
-                    session.commit()
-                    print(f"Migrated material '{material.name}' from {file_path}")
-                    migrated_count += 1
-                except Exception as e:
-                    print(f"Error migrating {file_path}: {e}")
-                    session.rollback()
+    print(f"📦 Found {total_count} material files")
 
-    return len(material_files), migrated_count
+    # Migrate each material
+    success_count = 0
+    for file_path in material_files:
+        if await migrate_material(file_path):
+            success_count += 1
+            print(f"✅ Migrated {file_path.name} ({success_count}/{total_count})")
+        else:
+            print(f"❌ Failed to migrate {file_path.name}")
 
-
-def main():
-    """Main function to migrate materials."""
-    print("🔍 Scanning for materials to migrate...")
-
-    # Get the project root directory
-    project_root = Path(__file__).parent.parent.parent.parent
-
-    # Check if the database is ready
-    from aiconsole.database.check_db import (
-        check_connection,
-        check_table_exists,
-        check_table_structure,
-    )
-
-    if not check_connection():
-        print(" Cannot proceed with migration due to database connection issues")
-        sys.exit(1)
-
-    if not check_table_exists():
-        print("Creating materials table...")
-        db_manager.create_tables()
-        print(" Materials table created")
-
-    structure_ok, _ = check_table_structure()
-    if not structure_ok:
-        print(" Table structure is incorrect. Please check the models.py file")
-        sys.exit(1)
-
-    found_count, migrated_count = migrate_materials(project_root)
-
-    print(f" Migration complete: {migrated_count} of {found_count} materials migrated to the database")
+    print(f"\n✅ Migration complete: {success_count}/{total_count} materials migrated successfully")
+    return success_count, total_count
 
 
 if __name__ == "__main__":
-    main()
+    # Set up logging
+    logging.basicConfig(level=logging.INFO)
+
+    # Run migration
+    asyncio.run(migrate_materials_to_db())

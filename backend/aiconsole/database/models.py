@@ -1,19 +1,17 @@
 from datetime import datetime
 from typing import Dict
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String, Text
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, Index, JSON
+from sqlalchemy.orm import declarative_base
 
-
-class Base(DeclarativeBase):
-    pass
+Base = declarative_base()
 
 
 class Material(Base):
     __tablename__ = "materials"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=False)
+    name = Column(String(255), nullable=False, unique=True)
     version = Column(String(50), nullable=False)
     usage = Column(Text, nullable=True)
     usage_examples = Column(Text, nullable=True)
@@ -29,6 +27,11 @@ class Material(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     material_metadata = Column(JSON, nullable=True)
     agents = Column(JSON, nullable=True)
+
+    # Define indexes
+    __table_args__ = (
+        Index('ix_materials_name', 'name', unique=True),
+    )
 
     def to_dict(self) -> Dict:
         return {

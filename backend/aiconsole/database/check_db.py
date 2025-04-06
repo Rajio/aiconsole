@@ -12,137 +12,159 @@ from aiconsole.database import db_manager
 from aiconsole.database.models import Material
 
 
-def check_connection() -> bool:
+async def check_connection() -> bool:
     """Check if the database connection is working."""
     try:
-        with db_manager.get_session() as session:
-            session.execute(text("SELECT 1"))
-        print("✅ Database connection successful")
+        async with db_manager.session() as session:
+            await session.execute(text("SELECT 1"))
+            await session.execute(text("SELECT version()"))  # Check PostgreSQL version
+        print("✅ PostgreSQL connection successful")
         return True
     except SQLAlchemyError as e:
         print(f"❌ Database connection failed: {e}")
         return False
 
 
-def check_table_exists() -> bool:
+async def check_table_exists() -> bool:
     """Check if the materials table exists."""
-    inspector = inspect(db_manager.engine)
-    tables = inspector.get_table_names()
-
-    if "materials" in tables:
-        print("✅ Materials table exists")
-        return True
-    else:
-        print("❌ Materials table does not exist")
+    try:
+        async with db_manager.session() as session:
+            # Check if table exists
+            result = await session.execute(text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'materials')"
+            ))
+            exists = result.scalar()
+            
+            if exists:
+                print("✅ Materials table exists")
+                return True
+            else:
+                print("❌ Materials table does not exist")
+                return False
+    except SQLAlchemyError as e:
+        print(f"❌ Error checking table existence: {e}")
         return False
 
 
-def check_table_structure() -> Tuple[bool, List[str]]:
+async def check_table_structure() -> Tuple[bool, List[str]]:
     """Check if the materials table has the correct structure."""
-    inspector = inspect(db_manager.engine)
-    columns = {col["name"]: col for col in inspector.get_columns("materials")}
+    expected_columns = {
+        "id": "integer",
+        "name": "character varying",
+        "version": "character varying",
+        "usage": "text",
+        "usage_examples": "text",
+        "type": "character varying",
+        "location": "character varying",
+        "default_status": "character varying",
+        "current_status": "character varying",
+        "override": "boolean",
+        "content": "text",
+        "content_type": "character varying",
+        "path": "character varying",
+        "created_at": "timestamp without time zone",
+        "updated_at": "timestamp without time zone",
+        "material_metadata": "jsonb",
+        "agents": "jsonb"
+    }
 
-    expected_columns = [
-        "id",
-        "name",
-        "version",
-        "usage",
-        "usage_examples",
-        "type",
-        "location",
-        "default_status",
-        "current_status",
-        "override",
-        "content",
-        "content_type",
-        "path",
-        "created_at",
-        "updated_at",
-        "material_metadata",
-        "agents",
-    ]
-
-    missing_columns = [col for col in expected_columns if col not in columns]
-
-    if missing_columns:
-        print(f"❌ Missing columns: {', '.join(missing_columns)}")
-        return False, missing_columns
-    else:
-        print("✅ Table structure is correct")
-        return True, []
-
-
-def check_existing_materials() -> int:
-    """Check if there are any existing materials in the table."""
-    with db_manager.get_session() as session:
-        count = session.query(Material).count()
-
-    print(f"Found {count} materials in the database")
-    return count
-
-
-def test_material_creation() -> Optional[Material]:
-    """Test if a new material can be created and saved."""
     try:
-        material_data = {
-            "name": "test_material",
-            "version": "1.0",
-            "usage": "Test usage",
-            "type": "material",
-            "location": "project",
-            "default_status": "enabled",
-            "current_status": "enabled",
-            "content": "Test content",
-            "content_type": "text",
-            "override": False,
-            "material_metadata": {},
-            "agents": [],
-        }
+        async with db_manager.session() as session:
+            # Get column information from PostgreSQL
+            result = await session.execute(text("""
+                SELECT column_name, data_type 
+                FROM information_schema.columns 
+                WHERE table_name = 'materials'
+            """))
+            columns = {row[0]: row[1] for row in result}
 
-        material = db_manager.create_material(material_data)
-        print(f"✅ Successfully created test material with ID: {material.id}")
+            # Check for missing columns
+            missing_columns = []
+            for col_name, col_type in expected_columns.items():
+                if col_name not in columns:
+                    missing_columns.append(col_name)
+                elif columns[col_name] != col_type:
+                    missing_columns.append(f"{col_name} (expected {col_type}, got {columns[col_name]})")
 
-        # Clean up the test material
-        db_manager.delete_material(material.id)
-        print("✅ Successfully deleted test material")
+            if not missing_columns:
+                print("✅ Materials table structure is correct")
+                return True, []
+            else:
+                print("❌ Materials table structure is incorrect")
+                print(f"Missing or incorrect columns: {', '.join(missing_columns)}")
+                return False, missing_columns
 
-        return material
-    except Exception as e:
-        print(f"❌ Failed to create test material: {e}")
-        return None
+    except SQLAlchemyError as e:
+        print(f"❌ Error checking table structure: {e}")
+        return False, ["Error checking table structure"]
 
 
-def main():
-    """Main function to check the database."""
-    print("🔍 Checking database connection and structure...")
+async def check_database_indexes() -> bool:
+    """Check if the necessary indexes exist."""
+    try:
+        async with db_manager.session() as session:
+            # Check for primary key
+            result = await session.execute(text("""
+                SELECT COUNT(*) 
+                FROM pg_constraint 
+                WHERE conrelid = 'materials'::regclass 
+                AND contype = 'p'
+            """))
+            has_primary_key = result.scalar() > 0
 
-    if not check_connection():
-        print("❌ Cannot proceed with database check due to connection issues")
-        sys.exit(1)
+            # Check for name index
+            result = await session.execute(text("""
+                SELECT COUNT(*) 
+                FROM pg_indexes 
+                WHERE tablename = 'materials' 
+                AND indexdef LIKE '%materials_name%'
+            """))
+            has_name_index = result.scalar() > 0
 
-    if not check_table_exists():
-        print("Creating materials table...")
-        db_manager.create_tables()
-        print("✅ Materials table created")
+            if has_primary_key and has_name_index:
+                print("✅ All required indexes exist")
+                return True
+            else:
+                missing = []
+                if not has_primary_key:
+                    missing.append("primary key")
+                if not has_name_index:
+                    missing.append("name index")
+                print(f"❌ Missing indexes: {', '.join(missing)}")
+                return False
 
-    structure_ok, _ = check_table_structure()
+    except SQLAlchemyError as e:
+        print(f"❌ Error checking indexes: {e}")
+        return False
+
+
+async def verify_database() -> bool:
+    """Run all database verification checks."""
+    print("\n🔍 Starting database verification...")
+    
+    # Check connection
+    if not await check_connection():
+        return False
+
+    # Check table
+    if not await check_table_exists():
+        return False
+
+    # Check structure
+    structure_ok, _ = await check_table_structure()
     if not structure_ok:
-        print("❌ Table structure is incorrect. Please check the models.py file")
-        sys.exit(1)
+        return False
 
-    material_count = check_existing_materials()
+    # Check indexes
+    if not await check_database_indexes():
+        return False
 
-    if material_count == 0:
-        print("ℹ️ No materials found in the database")
-    else:
-        print("ℹ️ Materials already exist in the database")
-
-    test_material = test_material_creation()
-    if test_material:
-        print("✅ Database is working correctly")
-    else:
-        print("❌ Database is not working correctly")
+    print("\n✅ All database checks passed successfully!")
+    return True
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    
+    success = asyncio.run(verify_database())
+    sys.exit(0 if success else 1)
