@@ -28,6 +28,8 @@ from aiconsole.core.project.paths import (
     get_core_assets_directory,
     get_project_assets_directory,
 )
+from aiconsole.database import db_manager
+from aiconsole.database.models import Material as DBMaterial
 
 _log = logging.getLogger(__name__)
 
@@ -40,6 +42,14 @@ async def load_asset_from_fs(asset_type: AssetType, asset_id: str, location: Ass
         if asset_id == _USER_AGENT_ID:
             raise UserIsAnInvalidAgentIdError()
 
+    # Try to load from database first
+    if asset_type == AssetType.MATERIAL:
+        async with db_manager.session() as session:
+            db_material = await session.get(DBMaterial, int(asset_id))
+            if db_material:
+                return await Material.from_db(db_material)
+
+    # If not in database, load from filesystem
     project_dir_path = get_project_assets_directory(asset_type)
     core_resource_path = get_core_assets_directory(asset_type)
 
@@ -91,6 +101,9 @@ async def load_asset_from_fs(asset_type: AssetType, asset_id: str, location: Ass
 
         if "content_api" in tomldoc and material.content_type == MaterialContentType.API:
             material.content = str(tomldoc["content_api"]).strip()
+
+        # Save to database
+        await material.save_to_db()
 
         return material
 

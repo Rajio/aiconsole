@@ -29,27 +29,44 @@ class DatabaseManager:
             session.close()
 
     def create_material(self, material_data: dict) -> Material:
-        with self.get_session() as session:
+        session = self.SessionLocal()
+        try:
             material = Material(**material_data)
             session.add(material)
             session.commit()
             session.refresh(material)
             return material
+        finally:
+            session.close()
 
     def get_material(self, material_id: int) -> Optional[Material]:
-        with self.get_session() as session:
+        session = self.SessionLocal()
+        try:
             return session.query(Material).filter(Material.id == material_id).first()
+        finally:
+            session.close()
 
     def get_material_by_name(self, name: str) -> Optional[Material]:
-        with self.get_session() as session:
+        session = self.SessionLocal()
+        try:
             return session.query(Material).filter(Material.name == name).first()
+        finally:
+            session.close()
 
     def get_all_materials(self) -> List[Material]:
-        with self.get_session() as session:
-            return session.query(Material).all()
+        session = self.SessionLocal()
+        try:
+            materials = session.query(Material).all()
+            # Ensure all materials are loaded
+            for material in materials:
+                session.refresh(material)
+            return materials
+        finally:
+            session.close()
 
     def update_material(self, material_id: int, material_data: dict) -> Optional[Material]:
-        with self.get_session() as session:
+        session = self.SessionLocal()
+        try:
             material = session.query(Material).filter(Material.id == material_id).first()
             if material:
                 for key, value in material_data.items():
@@ -57,15 +74,20 @@ class DatabaseManager:
                 session.commit()
                 session.refresh(material)
             return material
+        finally:
+            session.close()
 
     def delete_material(self, material_id: int) -> bool:
-        with self.get_session() as session:
+        session = self.SessionLocal()
+        try:
             material = session.query(Material).filter(Material.id == material_id).first()
             if material:
                 session.delete(material)
                 session.commit()
                 return True
             return False
+        finally:
+            session.close()
 
 
 # Create a global instance of the database manager

@@ -23,7 +23,16 @@ def display_materials() -> None:
         print(f"📦 Found {len(materials)} materials:")
         for material in materials:
             print(
-                f"- ID: {material.id}, Name: {material.name}, Version: {material.version}, Location: {material.location}"
+                f"\nMaterial: {material.name}"
+                f"\n  ID: {material.id}"
+                f"\n  Version: {material.version}"
+                f"\n  Location: {material.location}"
+                f"\n  Status: {material.current_status}"
+                f"\n  Type: {material.type}"
+                f"\n  Content Type: {material.content_type}"
+                f"\n  Created: {material.created_at}"
+                f"\n  Updated: {material.updated_at}"
+                f"\n  {'-' * 50}"
             )
 
     except Exception as e:

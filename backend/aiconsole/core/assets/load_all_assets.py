@@ -10,12 +10,35 @@ from aiconsole.core.project.paths import (
     get_core_assets_directory,
     get_project_assets_directory,
 )
+from aiconsole.database import db_manager
+from aiconsole.database.models import Material as DBMaterial
 from aiconsole.utils.list_files_in_file_system import list_files_in_file_system
 
 
 async def load_all_assets(asset_type: AssetType) -> dict[str, list[Asset]]:
     _assets: dict[str, list[Asset]] = {}
 
+    # Load from database first if it's materials
+    if asset_type == AssetType.MATERIAL:
+        async with db_manager.session() as session:
+            db_materials = await session.query(DBMaterial).all()
+            for db_material in db_materials:
+                try:
+                    from aiconsole.core.assets.materials.material import Material
+
+                    material = await Material.from_db(db_material)
+                    if str(db_material.id) not in _assets:
+                        _assets[str(db_material.id)] = []
+                    _assets[str(db_material.id)].append(material)
+                except Exception as e:
+                    await connection_manager().send_to_all(
+                        ErrorServerMessage(
+                            error=f"Invalid material {db_material.id} {e}",
+                        )
+                    )
+                    continue
+
+    # Then load from filesystem
     locations = [
         [AssetLocation.PROJECT_DIR, get_project_assets_directory(asset_type)],
         [AssetLocation.AICONSOLE_CORE, get_core_assets_directory(asset_type)],

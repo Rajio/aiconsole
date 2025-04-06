@@ -94,6 +94,9 @@ def test_material_creation() -> Optional[Material]:
             "current_status": "enabled",
             "content": "Test content",
             "content_type": "text",
+            "override": False,
+            "material_metadata": {},
+            "agents": [],
         }
 
         material = db_manager.create_material(material_data)

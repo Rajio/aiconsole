@@ -27,6 +27,8 @@ from aiconsole.core.project.paths import (
     get_core_assets_directory,
     get_project_assets_directory,
 )
+from aiconsole.database import db_manager
+from aiconsole.database.models import Material as DBMaterial
 
 _USER_AGENT_ID = "user"
 
@@ -51,6 +53,10 @@ async def save_asset_to_fs(asset: Asset, old_asset_id: str) -> Asset:
 
     # Join version number
     asset.version = ".".join(current_version_parts)
+
+    # Save to database if it's a material
+    if isinstance(asset, Material):
+        await asset.save_to_db()
 
     # Save to .toml file
     with (path / f"{asset.id}.toml").open("w", encoding="utf8", errors="replace") as file:

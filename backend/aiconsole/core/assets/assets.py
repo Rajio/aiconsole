@@ -29,6 +29,8 @@ from aiconsole.core.assets.types import Asset, AssetLocation, AssetStatus, Asset
 from aiconsole.core.project import project
 from aiconsole.core.project.paths import get_project_assets_directory
 from aiconsole.core.settings.settings import settings
+from aiconsole.database import db_manager
+from aiconsole.database.models import Material as DBMaterial
 from aiconsole.utils.BatchingWatchDogHandler import BatchingWatchDogHandler
 from aiconsole_toolkit.settings.partial_settings_data import PartialSettingsData
 

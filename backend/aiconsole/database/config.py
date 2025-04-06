@@ -26,7 +26,7 @@ SQLITE_DB_PATH = DB_FOLDER / "materials.db"
 def get_connection_string() -> str:
     # PostgreSQL connection string
     encoded_password = quote_plus(DB_PASSWORD)
-    return f"postgresql://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    return f"postgresql://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}?client_encoding=utf8"
 
     # SQLite connection string (commented out for production)
     # return f"sqlite:///{SQLITE_DB_PATH}"

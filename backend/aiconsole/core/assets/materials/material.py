@@ -16,13 +16,15 @@
 import traceback
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from aiconsole.core.assets.materials.documentation_from_code import (
     documentation_from_code,
 )
 from aiconsole.core.assets.materials.rendered_material import RenderedMaterial
 from aiconsole.core.assets.types import Asset, AssetLocation, AssetStatus, AssetType
+from aiconsole.database import db_manager
+from aiconsole.database.models import Material as DBMaterial
 from aiconsole.utils.events import InternalEvent, internal_events
 
 if TYPE_CHECKING:
@@ -54,6 +56,50 @@ class Material(Asset):
     content_type: MaterialContentType = MaterialContentType.STATIC_TEXT
     content: str = ""
 
+    @classmethod
+    async def from_db(cls, db_material: DBMaterial) -> "Material":
+        """Create a Material instance from a database model."""
+        return cls(
+            id=str(db_material.id),
+            name=db_material.name,
+            version=db_material.version,
+            usage=db_material.usage or "",
+            defined_in=AssetLocation.PROJECT_DIR if db_material.location == "project" else AssetLocation.AICONSOLE,
+            content_type=(
+                MaterialContentType(db_material.content_type)
+                if db_material.content_type
+                else MaterialContentType.STATIC_TEXT
+            ),
+            content=db_material.content or "",
+        )
+
+    @classmethod
+    async def get_by_id(cls, material_id: str) -> Optional["Material"]:
+        """Get a material by its ID from the database."""
+        async with db_manager.session() as session:
+            db_material = await session.get(DBMaterial, int(material_id))
+            if db_material:
+                return await cls.from_db(db_material)
+            return None
+
+    async def save_to_db(self) -> None:
+        """Save the material to the database."""
+        db_material = DBMaterial(
+            name=self.name,
+            version=self.version,
+            usage=self.usage,
+            type=self.type.value,
+            location="project" if self.defined_in == AssetLocation.PROJECT_DIR else "aiconsole",
+            default_status="enabled",
+            current_status="enabled",
+            content=self.content,
+            content_type=self.content_type.value,
+        )
+
+        async with db_manager.session() as session:
+            session.add(db_material)
+            await session.commit()
+
     def __hash__(self):
         return hash(self.id + self.version + self.name + self.usage + self.content_type + self.content)
 
@@ -70,14 +116,7 @@ class Material(Asset):
 
             project_dir_path = get_project_assets_directory(self.type)
             core_resource_path = get_core_assets_directory(self.type)
-            # TODO: content_file path is relative. If material is default, only .toml file is copied to project
-            #  directory, so content_file is not found. If material is in project, then content_file is found.
-            # if self.defined_in == AssetLocation.PROJECT_DIR:
-            #     base_search_path = project_dir_path
-            # else:
-            #     base_search_path = core_resource_path
 
-            # This is a workaround for now, but it should be fixed in the future
             if (project_dir_path / content_file).exists():
                 base_search_path = project_dir_path
             else:
@@ -113,7 +152,9 @@ class Material(Asset):
             else:
                 raise ValueError("No callable content function found!")
         except Exception:
-            await internal_events().emit(MaterialRenderErrorEvent(), details=f"Error in DYNAMIC_TEXT material `{self.id}`")
+            await internal_events().emit(
+                MaterialRenderErrorEvent(), details=f"Error in DYNAMIC_TEXT material `{self.id}`"
+            )
             error_details = RenderedMaterial(id=self.id, content="", error=traceback.format_exc())
             raise ValueError("Error in Dynamic Note material", error_details)
 
