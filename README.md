@@ -55,6 +55,70 @@ Note that in your home app directory you have additional settings.toml which sto
 
 Material, Agent and settings files are monitored and automatically loaded, then used as context.
 
+# Database Usage
+
+AIConsole uses PostgreSQL for storing materials and their metadata. Here's how to set up and use the database:
+
+1. **Database Setup**:
+   - Create a PostgreSQL database
+   - Configure database connection in `.env` file:
+     ```
+     DB_HOST=localhost
+     DB_PORT=5432
+     DB_NAME=your_database_name
+     DB_USER=your_username
+     DB_PASSWORD=your_password
+     ```
+
+2. **Database Structure**:
+   - Materials are stored in the `materials` table
+   - Each material contains:
+     - Basic info (id, name, version)
+     - Content and metadata
+     - Usage examples
+     - Related materials and agents
+
+3. **Using the Database**:
+   - Materials are automatically loaded from the database on startup
+   - CRUD operations are available through the API:
+     - GET `/api/materials/{id}` - retrieve material
+     - POST `/api/materials` - create new material
+     - PATCH `/api/materials/{id}` - update material
+     - DELETE `/api/materials/{id}` - delete material
+
+4. **Migration**:
+   - Use `python -m aiconsole.database.verify_and_migrate` to verify and migrate materials
+   - Use `python -m aiconsole.database.recreate_tables` to recreate database tables if needed
+
+5. **Security**:
+   - Sensitive data (passwords, API keys) are stored in `.env`
+   - Database connections use SSL for security
+   - Proper encoding is used for special characters
+
+6. **Creating Materials in Database**:
+   - Materials can be created through the API or UI
+   - Example API request to create a material:
+     ```json
+     POST /api/materials
+     {
+       "name": "My Material",
+       "content": "Material content here",
+       "content_type": "static_text",
+       "usage": "How to use this material",
+       "usage_examples": ["Example 1", "Example 2"]
+     }
+     ```
+
+7. **Database Status and Maintenance**:
+   - Check database status: `python -m aiconsole.database.check_db`
+   - View current materials: `python -m aiconsole.database.list_materials`
+   - Backup database: Use standard PostgreSQL tools like `pg_dump`
+
+8. **Troubleshooting**:
+   - If materials don't load: Check database connection in `.env`
+   - If migration fails: Run `python -m aiconsole.database.recreate_tables`
+   - If you see duplicate materials: Use `python -m aiconsole.database.verify_and_migrate` to clean up
+
 # Accessing AIConsole internals from the Python APIs
 
 The only module you can safelly access is aiconsole_toolkit, it's built with running it from the interpreter subprocess and has a stable interface. The stable interface is documented in the core materials referring to those APIs.
